@@ -1,11 +1,12 @@
 name: build-fork-image
 
-# 每次 push 到 main 自动构建镜像并推送到 GHCR。
-# 服务器侧不需要编译，只需 docker pull + 重建容器。
+# 只在改造分支 dev/personal 上触发构建，构建产物推送到 GHCR。
+# main 仅用于跟随上游（Willxup/cpa-usage-keeper），不参与构建，避免未验证的上游代码被部署。
+# 服务器侧不需要编译，只需 docker pull + 重建容器（/root/deploy.sh）。
 
 on:
   push:
-    branches: [main]
+    branches: [dev/personal]
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
