@@ -17,7 +17,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
+  gap: 4px;
+  // 内联状态码后内容宽度不再固定：min-width 保留无状态码行的对齐基线，
+  // 有状态码的行按内容撑开，避免文字溢出胶囊边框挤占相邻列（NULL 老数据保持原宽）。
+  width: auto;
+  min-width: 60px;
   padding: 2px 8px;
   border-radius: $radius-full;
   font-size: 11px;
@@ -25,8 +29,15 @@
   white-space: nowrap;
 
   &[data-result-locale='zh'] {
-    width: 50px;
+    min-width: 50px;
   }
+}
+
+.requestEventsResultCode {
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.82;
 }
 
 .requestEventsResultLogButton {
@@ -57,6 +68,9 @@
 
 .requestEventsResultCompact {
   width: auto;
+  // 凭证抽屉里徽章按内容收窄，基准 min-width 会把 9px 小字撑得过宽。
+  min-width: 0;
+  gap: 3px;
   min-height: 22px;
   padding: 3px 7px;
   font-size: 9px;
@@ -64,6 +78,12 @@
 
   &[data-result-locale='zh'] {
     width: auto;
+    min-width: 0;
+  }
+
+  // 与 compact 标签同号，避免 9px 上下文里再缩小到 8px 造成模糊。
+  .requestEventsResultCode {
+    font-size: 9px;
   }
 }
 

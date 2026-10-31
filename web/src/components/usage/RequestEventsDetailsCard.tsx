@@ -992,6 +992,8 @@ export function RequestEventsDetailsCard({
             <td className={styles.requestEventsNoWrapCell}>
               <RequestEventResultBadge
                 failed={row.failed}
+                // 状态码归一化（范围/整数校验）只发生在徽章内部，调用点直接透传原始值。
+                statusCode={row.event.status_code}
                 loading={loading}
                 onOpen={canOpenLog ? () => onRequestLogOpen?.(row.event) : undefined}
               />
