@@ -6,6 +6,10 @@
 用途：记录每条 fork 内部改造落在哪些文件、与上游同文件的耦合程度，以及合并上游 main 时需要复核什么。
 **每次新增改造，请在「改造清单」追加一行，并在「变更记录」写一条日期条目。**
 
+> ⚠️ **合并上游 main 前必须先读本文件，且要读源码而不是只读冲突标记。**
+> 真正危险的是「没有文本冲突、类型检查与测试全绿、逻辑却已经被上游改写」——
+> 见第 4 节的四类静默逻辑冲突与核对清单。
+
 ---
 
 ## 1. 分支模型
@@ -64,13 +68,18 @@ git -c credential.helper='!gh auth git-credential' push github dev/personal
 
 ## 4. 合并上游的操作步骤
 
+> **本文件是合并前的必读件。** 合并可能「没有文本冲突、tsc/eslint/测试全绿」，但逻辑上已经被上游改写
+> ——上游重构了同一段语义、换了等价实现、改了默认值或数据流，三方差分看不出来，只能靠读源码判断。
+> 所以第 2 步和第 5 步不能省，第 6 步的检查清单必须逐条勾。
+
 ```bash
 # 1) 更新上游引用（注意 origin 是镜像，upstream 才是真源）
 git fetch upstream --prune
 
-# 2) 看上游这段时间动了什么，以及是否碰到改造清单里的文件
+# 2) 【必做】逐个读提交意图，不能只看 --stat
 git log --oneline HEAD..upstream/main
-git diff --stat HEAD...upstream/main -- web/src/components/usage/RequestEventResultBadge.tsx \
+# 对每个触及改造文件的提交，读完整 patch（不是只看冲突标记）：
+git log -p HEAD..upstream/main -- web/src/components/usage/RequestEventResultBadge.tsx \
   web/src/components/usage/RequestEventResultBadge.module.scss \
   web/src/components/usage/RequestEventsDetailsCard.tsx \
   web/src/components/usage/credentials/CredentialRequestEventsList.tsx
@@ -78,16 +87,31 @@ git diff --stat HEAD...upstream/main -- web/src/components/usage/RequestEventRes
 # 3) 合并（在 dev/personal 上做，冲突优先保留本 fork 的改造语义）
 git merge upstream/main
 
-# 4) 冲突后必须重跑
+# 4) 合并后先看「上游到底带进来什么」，重点看同一功能是否有第二种实现
+git diff HEAD@{1}..HEAD --stat | tail -20
+git log --oneline HEAD@{1}..upstream/main
+
+# 5) 验证（通过 ≠ 逻辑正确，只是兜底）
 cd web && npx tsc --noEmit && npx vitest run && npx eslint . && npx vite build
-# 以及（Go 侧未改动时可选）make verify-backend
+# Go 侧有改动时：make verify-backend
 ```
+
+**第 2 步要重点识别的四类「静默逻辑冲突」**（针对改造 1）：
+
+| 类型 | 上游可能怎么改 | 后果 | 怎么发现 |
+| --- | --- | --- | --- |
+| 数据源被换掉 | 实时 SSE 推送的 event 对象不再携带 `status_code`，或改用新的字段名/嵌套 | 状态码静默变 NULL，界面只剩结果词，测试仍全绿（因为没有断言「必须有值」） | 读 `internal/api/usage_events_live.go`、`useRequestEventsFeed.ts` 里 event 的构造；真实环境抽查一行有值数据 |
+| 归一化被重复实现 | 上游在 event 映射层又加了一次状态码格式化/裁剪 | 两处规则不一致，越界值表现分裂 | `grep -rn "status_code" web/src --include=*.ts --include=*.tsx`，确认仍只有徽章一处归一化 |
+| 徽章被替换或内联 | 上游把 result 列改成新组件、或把徽章改成纯文本 | 我们的 `statusCode` prop 变成死代码（类型不报错） | 确认 `RequestEventResultBadge` 仍被 `RequestEventsDetailsCard` 与 `CredentialRequestEventsList` 引用 |
+| 语义被"修正" | 上游给 `failed` 与 `status_code` 加了强制一致性校验 | 「如实呈现上游事实」的设计被推翻 | 读 diff 里 result 列附近与 event 映射 |
 
 合并后逐条核对：
 - [ ] `RequestEventResultBadge` 仍接收并使用 `statusCode`
 - [ ] 两个调用点仍是 `statusCode={row.event.status_code}`
 - [ ] `data-request-result-status-code` 仍存在（测试会兜底）
 - [ ] 徽章宽度仍是 `width:auto + min-width`，没有被上游改回固定宽度
+- [ ] 实时/分页两条数据路径产出的 event 都仍带 `status_code`（新增的数据通道最容易漏字段）
+- [ ] 归一化仍只有一处（徽章内），行模型里没有被重新塞入副本字段
 - [ ] `.github/workflows/build-fork-image.yml` 的触发分支仍是 `dev/personal`
 
 ---
@@ -122,3 +146,6 @@ cd web && npx tsc --noEmit && npx vitest run && npx eslint . && npx vite build
 - 建立本文件，补齐改造清单、设计约束与合并 SOP。
 - 盘点上游：`9db74cfc` → `ab827c45` 共 73 个提交、120 个文件；唯一与改造 1 重叠的文件是
   `RequestEventsDetailsCard.tsx`，且上游改动未触及 result 列与徽章调用点（见第 5 节）。
+- 按用户要求补充「合并前必读 + 逻辑冲突审查」：第 4 节新增四类静默逻辑冲突（数据源被换、归一化重复、
+  徽章被替换、语义被修正）的识别方法与来源文件，核对清单扩充数据通道路径与归一化唯一性两项。
+  规则同时写入 `.workbuddy/memory/MEMORY.md`（本地记忆，仅本机可见）。
